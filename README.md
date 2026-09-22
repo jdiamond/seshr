@@ -145,6 +145,25 @@ seshr review --all --output <path>
 
 The main output is Markdown. A targeted session run is the primary development and testing path. A time-range run reviews individual sessions, then optionally synthesizes those reviews into one report.
 
+### Current MVP
+
+The initial implementation supports the targeted path without external dependencies:
+
+```sh
+node src/cli.ts review \\
+  --session ~/.pi/agent/sessions/<project>/<session>.jsonl \\
+  --output ./review.md \\
+  --chunk-chars 100000 \\
+  --review-chars 30000 \\
+  --model opencode-go/gpt-5.6-luna \\
+  --debug-dir /tmp/seshr-debug \\
+  --verbose
+```
+
+`--chunk-chars` and `--review-chars` are runtime tuning knobs: larger values can reduce the number of agent calls and improve cross-session coherence, while increasing prompt size, latency per call, and potentially input-token cost. The defaults are 24,000 and 12,000 characters; the larger values above are useful for models with large context windows. `--verbose` logs the selected model, event and byte counts, per-agent timing, review sizes, and total duration. `--debug-dir` is separate debugging/recovery support: it saves the system prompt plus each prompt/review pair as `chunk-NNN.prompt.md` and `chunk-NNN.review.md`, preserving intermediate results if a run is cancelled.
+
+It reads Pi JSONL directly, renders user/assistant turns plus compact tool-call summaries and important tool failures, omits routine successful tool output, redacts common credential forms, and invokes an isolated `pi` process for each bounded chunk with thinking disabled. Use `--model <model>` to select a reviewer model or `--reviewer <file>` to provide a different reviewer prompt. The source session and project files are never modified.
+
 The initial reviewer backend should invoke Pi as an isolated non-interactive process with no session persistence, tools, extensions, skills, or context files. A TypeScript implementation may use Pi's SDK later if process startup becomes a measured problem, but the first version should prefer process isolation and a small dependency surface.
 
 ## Initial scope
