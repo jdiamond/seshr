@@ -1,5 +1,7 @@
 # Add reviewer prompt profiles
 
+> **Status: Superseded.** Use the existing `--reviewer <file>` option with a complete, user-owned reviewer prompt. Built-in profiles and composed lens flags are intentionally not planned.
+
 ## Intent
 Support intentional review styles without requiring a custom prompt file for every common use case.
 
@@ -25,7 +27,10 @@ Keep `--reviewer <file>` for custom prompts. Profiles must not add dependencies 
 - Each profile produces a meaningfully different and useful report.
 - Custom reviewer files continue to work unchanged.
 
+## Decision
+
+Do not implement this as a separate feature. A user can copy the generic reviewer prompt, customize its sections and review lenses, and select different files for work, home, or separate review runs. This provides more flexibility with less code and no prompt-composition protocol to maintain.
+
 ## Open questions
-- Is a profile flag better than separate prompt files?
-- Should profiles change Markdown sections or only reviewer emphasis?
-- Which profiles are actually useful often enough to maintain?
+- Should the repository include a generic reviewer prompt example?
+- Should the built-in prompt be exposed as a copyable template?
