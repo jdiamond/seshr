@@ -1,34 +1,32 @@
 #!/usr/bin/env node
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { readFile, writeFile, mkdir, readdir, open } from "node:fs/promises";
+import { basename, dirname, resolve, join } from "node:path";
+import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 
 const DEFAULT_CHUNK_CHARS = 24_000;
 const MAX_REVIEW_CHARS = 12_000;
+const DEFAULT_SESSION_DIR = resolve(homedir(), ".pi/agent/sessions");
 const DEFAULT_REVIEWER_PATH = new URL("../prompts/default-reviewer.md", import.meta.url);
 
 type JsonObject = Record<string, any>;
 type Entry = { line: number; value: JsonObject };
+type SessionInfo = {
+  path: string;
+  id?: string;
+  timestamp?: string;
+  cwd?: string;
+  error?: string;
+};
 
 function usage(): never {
-  console.error(`Usage: seshr review --session <path> --output <path> [options]
-
-Options:
-  --session <path>       Pi JSONL session file (required)
-  --output <path>        Markdown output path (required)
-  --chunk-chars <n>      Approximate chunk size, default ${DEFAULT_CHUNK_CHARS}
-  --review-chars <n>     Maximum carried-forward review size, default ${MAX_REVIEW_CHARS}
-  --model <model>        Model passed to pi
-  --reviewer <path>      File replacing the default reviewer prompt
-  --debug-dir <path>     Save prompts/reviews as chunk-NNN.prompt.md/review.md
-  --verbose              Log review progress to stderr
-  --help                 Show this help`);
+  console.error(usageText());
   process.exit(1);
 }
 
-function options(argv: string[]) {
+function options(argv: string[], required: string[] = ["session", "output"]) {
   const result: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -46,14 +44,19 @@ function options(argv: string[]) {
     if (!value || value.startsWith("--")) throw new Error(`Missing value for --${key}`);
     result[key] = value;
   }
-  if (!result.session || !result.output) usage();
+  if (required.some((key) => !result[key])) usage();
   return result;
 }
 
 function usageText() {
-  return `Usage: seshr review --session <path> --output <path> [options]
+  return `Usage:
+  seshr sessions [--since <age-or-timestamp>]
+  seshr review --session <path> --output <path> [options]
 
-Options:
+Session options:
+  --since <value>        Show sessions newer than a duration such as 1d, or a timestamp
+
+Review options:
   --session <path>       Pi JSONL session file (required)
   --output <path>        Markdown output path (required)
   --chunk-chars <n>      Approximate chunk size, default ${DEFAULT_CHUNK_CHARS}
@@ -63,6 +66,71 @@ Options:
   --debug-dir <path>     Save prompts/reviews as chunk-NNN.prompt.md/review.md
   --verbose              Log review progress to stderr
   --help                 Show this help`;
+}
+
+function parseSince(value: string): number {
+  const match = /^(\d+)([smhdw])$/i.exec(value);
+  if (match) {
+    const units: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+    return Date.now() - Number(match[1]) * units[match[2].toLowerCase()];
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) throw new Error(`Invalid --since value: ${value}`);
+  return timestamp;
+}
+
+async function readSessionHeader(path: string): Promise<SessionInfo> {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(16_384);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const line = buffer.toString("utf8", 0, bytesRead).split(/\r?\n/, 1)[0];
+    const value = JSON.parse(line);
+    if (value.type !== "session") throw new Error("first entry is not a session header");
+    return { path, id: value.id, timestamp: value.timestamp, cwd: value.cwd };
+  } catch (error) {
+    return { path, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function discoverSessions(since?: string): Promise<SessionInfo[]> {
+  let directories;
+  try {
+    directories = await readdir(DEFAULT_SESSION_DIR, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`Cannot read Pi session directory ${DEFAULT_SESSION_DIR}: ${error instanceof Error ? error.message : error}`);
+  }
+  const cutoff = since ? parseSince(since) : undefined;
+  const sessions: SessionInfo[] = [];
+  for (const directory of directories) {
+    if (!directory.isDirectory()) continue;
+    const directoryPath = join(DEFAULT_SESSION_DIR, directory.name);
+    const files = await readdir(directoryPath, { withFileTypes: true });
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
+      const info = await readSessionHeader(join(directoryPath, file.name));
+      if (cutoff !== undefined && info.timestamp && Date.parse(info.timestamp) < cutoff) continue;
+      sessions.push(info);
+    }
+  }
+  return sessions.sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
+}
+
+function printSessions(sessions: SessionInfo[]) {
+  if (!sessions.length) {
+    console.log("No sessions found.");
+    return;
+  }
+  console.log("ID\tTIMESTAMP\tWORKING DIRECTORY\tPATH");
+  for (const session of sessions) {
+    if (session.error) {
+      console.log(`INVALID\t-\t${session.error}\t${session.path}`);
+      continue;
+    }
+    console.log(`${session.id ?? "unknown"}\t${session.timestamp ?? "unknown"}\t${session.cwd ?? "unknown"}\t${session.path}`);
+  }
 }
 
 function redact(text: string): string {
@@ -169,6 +237,11 @@ async function main() {
   const command = process.argv[2];
   if (command === "--help" || command === "-h") {
     console.log(usageText());
+    return;
+  }
+  if (command === "sessions") {
+    const flags = options(process.argv.slice(3), []);
+    printSessions(await discoverSessions(flags.since));
     return;
   }
   if (command !== "review") usage();

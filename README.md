@@ -118,13 +118,16 @@ These categories should remain distinct. Activity and lessons retain source sess
 
 For the MVP, `seshr` reports from session evidence and does not verify or enrich GitHub, ticket-system, or Git history facts. Those integrations can be added later without changing the review format.
 
-The main output is Markdown. The targeted single-session run is the current development and testing path; time-range selection, session discovery, and cross-session synthesis remain future work.
+The main output is Markdown. The targeted single-session run remains the review path. `seshr sessions` now lists discovered Pi sessions and supports a `--since` filter; batch review and cross-session synthesis remain future work.
 
 ### Current MVP
 
-The initial implementation supports the targeted path without external dependencies:
+The initial implementation supports session discovery and the targeted review path without external dependencies:
 
 ```sh
+node src/cli.ts sessions
+node src/cli.ts sessions --since 1d
+
 node src/cli.ts review \\
   --session ~/.pi/agent/sessions/<project>/<session>.jsonl \\
   --output ./review.md \\
