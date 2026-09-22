@@ -76,7 +76,7 @@ Pi JSONL
 turn extraction + deterministic rendering
   |
   v
-Pi: review bounded chunks and rewrite review-so-far
+Pi: review bounded chunks and update the draft review
   |
   v
 one Markdown review per session
@@ -92,18 +92,19 @@ system prompt + session chunk + review-so-far + output reserve
   < configured context budget
 ```
 
-The reviewer rewrites the complete `review-so-far` rather than appending indefinitely. Chunks are processed sequentially within a session; separate sessions may be reviewed in parallel with a configurable limit.
+The reviewer returns the complete current Markdown review after incorporating each chunk, rather than appending indefinitely. Chunks are processed sequentially within a session. Multi-session processing is deferred.
 
-### Session review artifacts
+### Current artifacts
 
-Keep the final review for each processed session. These are useful for testing, rerunning, and later cross-session synthesis; intermediate chunk results can remain ephemeral.
+The targeted MVP writes to the path supplied with `--output`. With `--debug-dir`, it also saves the system prompt and each intermediate prompt/review pair:
 
 ```text
-~/.seshr/reviews/pi/<session-id>.md
-~/.seshr/runs/<timestamp>.md
+<debug-dir>/system-prompt.md
+<debug-dir>/chunk-NNN.prompt.md
+<debug-dir>/chunk-NNN.review.md
 ```
 
-Each review should retain source metadata and evidence references. The final run report can link to the individual reviews and identify common patterns.
+Each report retains the source session path, session ID, working directory, and evidence references. Per-session storage conventions and cross-session synthesis are future work.
 
 ## Observed facts and suggestions
 
@@ -134,16 +135,7 @@ Suggestions are not changes. The user can ask an agent to inspect the Markdown r
 
 For the MVP, `seshr` reports from session evidence and does not verify or enrich GitHub, ticket-system, or Git history facts. Those integrations can be added later without changing the review format.
 
-## Proposed CLI shape
-
-```text
-seshr review --session <id-or-path> --output <path>
-seshr review --since 1d --output <path>
-seshr review --from <timestamp> --to <timestamp> --output <path>
-seshr review --all --output <path>
-```
-
-The main output is Markdown. A targeted session run is the primary development and testing path. A time-range run reviews individual sessions, then optionally synthesizes those reviews into one report.
+The main output is Markdown. The targeted single-session run is the current development and testing path; time-range selection, session discovery, and cross-session synthesis remain future work.
 
 ### Current MVP
 
@@ -164,55 +156,27 @@ node src/cli.ts review \\
 
 It reads Pi JSONL directly, renders user/assistant turns plus compact tool-call summaries and important tool failures, omits routine successful tool output, redacts common credential forms, and invokes an isolated `pi` process for each bounded chunk with thinking disabled. Use `--model <model>` to select a reviewer model or `--reviewer <file>` to provide a different reviewer prompt. The source session and project files are never modified.
 
-The initial reviewer backend should invoke Pi as an isolated non-interactive process with no session persistence, tools, extensions, skills, or context files. A TypeScript implementation may use Pi's SDK later if process startup becomes a measured problem, but the first version should prefer process isolation and a small dependency surface.
+## Current scope
 
-## Initial scope
+The MVP currently supports one explicitly targeted Pi JSONL session. It deterministically renders user and assistant text, compact tool-call summaries, and important failures; omits routine successful tool output; redacts common credentials; and invokes isolated Pi processes with no session persistence, tools, extensions, skills, or context files.
 
-Start Pi-first without making the design Pi-specific:
+Each chunk updates a complete draft review. The reviewer is instructed to synthesize the big picture rather than produce an audit or file-by-file transcript. The source session and project files remain untouched. The first acceptance test is to run seshr against an existing session, inspect the Markdown, run it again, and verify that only the configured output changes (plus any explicitly requested debug artifacts).
 
-1. Discover Pi JSONL sessions by ID, time range, or all.
-2. Exclude actively-written sessions unless explicitly targeted for testing.
-3. Extract conversation turns and render bounded chunks deterministically.
-4. Omit noisy tool output by default while retaining commands, paths, exit codes, and important errors.
-5. Invoke isolated Pi reviewer processes with a bounded review-so-far.
-6. Save one Markdown review per session.
-7. Optionally run a meta-review over those Markdown reviews.
-8. Write the final Markdown report to a configured output location.
+Deferred until the targeted path proves useful:
 
-Do not build a normalized event ledger, classifier pipeline, automatic mutation pipeline, GitHub/ticket enrichment layer, Obsidian integration, or multi-harness adapter framework until the basic session-review loop proves useful. Other classifiers and harness adapters may be added later.
-
-## MVP plan
-
-Start with one targeted Pi session:
-
-```text
-seshr review --session <path> --output <path>
-```
-
-The MVP will:
-
-1. Read one Pi JSONL session.
-2. Render conversation turns into bounded chunks deterministically.
-3. Omit noisy tool output by default while retaining commands, paths, exit codes, and important errors.
-4. Invoke Pi as an isolated reviewer with `--no-session`, `--no-tools`, `--no-extensions`, `--no-skills`, and `--no-context-files`.
-5. Pass each chunk plus a bounded `review-so-far` to the reviewer.
-6. Ask the reviewer to rewrite the complete Markdown review rather than append indefinitely.
-7. Write one review to the configured output path.
-8. Leave source sessions and project files untouched.
-
-The first acceptance test is to run `seshr` against an existing session, inspect the Markdown, run it again, and verify that it creates no Pi session and modifies nothing except the configured output.
-
-Defer until the single-session path is useful:
-
+- resumable output;
+- session discovery and active-session filtering;
 - time-range and all-session selection;
 - parallel reviews;
-- cross-session meta-review;
+- cross-session synthesis;
 - scheduling;
-- Obsidian-specific behavior;
 - other harnesses;
-- classifiers;
-- GitHub and ticket enrichment;
-- automatic application of suggestions.
+- automatic application of suggestions;
+- GitHub, ticket, and deployment enrichment.
+
+## Work items
+
+The `ideas/` directory is the lightweight backlog. Each idea keeps its `Intent`, `Spec`, `Plan`, `Proof`, and `Open questions` sections in one Markdown file. When an idea is accepted for implementation, those sections become the change record rather than separate planning files.
 
 ## Design principles
 
