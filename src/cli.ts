@@ -7,19 +7,7 @@ import { performance } from "node:perf_hooks";
 
 const DEFAULT_CHUNK_CHARS = 24_000;
 const MAX_REVIEW_CHARS = 12_000;
-const DEFAULT_REVIEWER = `You are reviewing a coding-agent session for seshr.
-
-Produce a concise, big-picture Markdown review of the session evidence. This is not an audit or a play-by-play transcript. Do not enumerate every file read, edited, or written, or every routine command. Summarize file and command activity only when it reveals meaningful work, a decision, a failure, a user preference, a reusable workflow, or an unresolved issue. Separate direct observations from suggestions. Every important observation or suggestion must cite the source entry number in the form [entry N]. Do not invent facts, and do not claim that a suggested change was made.
-
-Use exactly these sections:
-## Summary
-## Observed
-## Suggested
-## Open questions
-
-Observed should cover the session's purpose, major work and decisions, user preferences or corrections, meaningful commands/tests and failures, and unresolved work when present. Suggested should only contain durable workflow improvements that are supported by the session. Prefer synthesis and patterns over exhaustive detail. Avoid repeating the same point across sections unless the repetition adds necessary context.
-
-The session may arrive in multiple chunks. For each chunk, update the draft review with genuinely new findings, preserve earlier findings that remain supported, remove unsupported claims, and consolidate overlapping points rather than repeating them. Always return the complete current Markdown review, not commentary about the update.`;
+const DEFAULT_REVIEWER_PATH = new URL("../prompts/default-reviewer.md", import.meta.url);
 
 type JsonObject = Record<string, any>;
 type Entry = { line: number; value: JsonObject };
@@ -33,7 +21,7 @@ Options:
   --chunk-chars <n>      Approximate chunk size, default ${DEFAULT_CHUNK_CHARS}
   --review-chars <n>     Maximum carried-forward review size, default ${MAX_REVIEW_CHARS}
   --model <model>        Model passed to pi
-  --reviewer <path>      File containing a replacement reviewer system prompt
+  --reviewer <path>      File replacing the default reviewer prompt
   --debug-dir <path>     Save prompts/reviews as chunk-NNN.prompt.md/review.md
   --verbose              Log review progress to stderr
   --help                 Show this help`);
@@ -71,7 +59,7 @@ Options:
   --chunk-chars <n>      Approximate chunk size, default ${DEFAULT_CHUNK_CHARS}
   --review-chars <n>     Maximum carried-forward review size, default ${MAX_REVIEW_CHARS}
   --model <model>        Model passed to pi
-  --reviewer <path>      File containing a replacement reviewer system prompt
+  --reviewer <path>      File replacing the default reviewer prompt
   --debug-dir <path>     Save prompts/reviews as chunk-NNN.prompt.md/review.md
   --verbose              Log review progress to stderr
   --help                 Show this help`;
@@ -196,7 +184,9 @@ async function main() {
   const session = entries.find((entry) => entry.value.type === "session")?.value;
   const renderedChunks = chunks(entries, maxChars);
   if (!renderedChunks.length) throw new Error("Session contains no reviewable messages");
-  const systemPrompt = flags.reviewer ? await readFile(resolve(flags.reviewer), "utf8") : DEFAULT_REVIEWER;
+  const systemPrompt = flags.reviewer
+    ? await readFile(resolve(flags.reviewer), "utf8")
+    : await readFile(DEFAULT_REVIEWER_PATH, "utf8");
   const debugDir = flags["debug-dir"] ? resolve(flags["debug-dir"]) : undefined;
   if (debugDir) {
     await mkdir(debugDir, { recursive: true });

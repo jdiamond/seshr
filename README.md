@@ -106,32 +106,15 @@ The targeted MVP writes to the path supplied with `--output`. With `--debug-dir`
 
 Each report retains the source session path, session ID, working directory, and evidence references. Per-session storage conventions and cross-session synthesis are future work.
 
-## Observed facts and suggestions
+## Activity, lessons, and suggestions
 
-A report should separate what the session directly shows from what the reviewer infers.
+A report should preserve both sides of the review:
 
-### Observed
+- **Activity:** what the session directly shows—its purpose, meaningful work, decisions, tests, failures, and unresolved work.
+- **Lessons:** information worth carrying beyond the session—preferences, corrections, workflow patterns, project conventions, or durable context. A focused session may have no lessons.
+- **Suggestions:** reviewer interpretations of what might be worth changing in `AGENTS.md`, a skill, prompt, script, test, or workflow.
 
-These are directly represented in the source session:
-
-- a user question or correction;
-- a command that ran;
-- a file that was read or edited;
-- a test result or error;
-- an assistant decision or explanation.
-
-Observed items should retain a source session and entry reference.
-
-### Suggested
-
-These are reviewer interpretations that need human judgment:
-
-- the same preference may be worth adding to `AGENTS.md`;
-- a repeated procedure may be worth turning into a skill;
-- a command sequence may deserve a script;
-- an instruction may be stale or contradictory.
-
-Suggestions are not changes. The user can ask an agent to inspect the Markdown report and apply selected ones.
+These categories should remain distinct. Activity and lessons retain source session and entry references; suggestions are proposals, not changes. The user can ask an agent to inspect the report and apply selected ones.
 
 For the MVP, `seshr` reports from session evidence and does not verify or enrich GitHub, ticket-system, or Git history facts. Those integrations can be added later without changing the review format.
 
@@ -154,7 +137,7 @@ node src/cli.ts review \\
 
 `--chunk-chars` and `--review-chars` are runtime tuning knobs: larger values can reduce the number of agent calls and improve cross-session coherence, while increasing prompt size, latency per call, and potentially input-token cost. The defaults are 24,000 and 12,000 characters; the larger values above are useful for models with large context windows. `--verbose` logs the selected model, event and byte counts, per-agent timing, review sizes, and total duration. `--debug-dir` is separate debugging/recovery support: it saves the system prompt plus each prompt/review pair as `chunk-NNN.prompt.md` and `chunk-NNN.review.md`, preserving intermediate results if a run is cancelled.
 
-It reads Pi JSONL directly, renders user/assistant turns plus compact tool-call summaries and important tool failures, omits routine successful tool output, redacts common credential forms, and invokes an isolated `pi` process for each bounded chunk with thinking disabled. Use `--model <model>` to select a reviewer model or `--reviewer <file>` to provide a different reviewer prompt. The source session and project files are never modified.
+The default reviewer prompt is the editable `prompts/default-reviewer.md` template. Copy it to personalize the report for a different context, then pass it with `--reviewer <file>`; the custom file replaces the default prompt. The template is organized around report sections so users can adjust emphasis without changing the CLI. The source session and project files are never modified.
 
 ## Current scope
 
