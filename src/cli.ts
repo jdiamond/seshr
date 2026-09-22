@@ -166,6 +166,64 @@ function toolResultSummary(message: JsonObject): string {
   return `${message.toolName ?? "tool"} result${message.isError ? " (error)" : ""}: ${redact(text).slice(0, 2_000)}`;
 }
 
+function timestampMs(value: JsonObject): number | undefined {
+  if (typeof value.timestamp === "number") return value.timestamp;
+  if (typeof value.timestamp === "string") {
+    const timestamp = Date.parse(value.timestamp);
+    return Number.isNaN(timestamp) ? undefined : timestamp;
+  }
+  return undefined;
+}
+
+function interactionMetadata(entries: Entry[]): Map<number, string> {
+  const metadata = new Map<number, string>();
+  let span: {
+    start: Entry;
+    startTime?: number;
+    toolTurns: number;
+    toolCalls: number;
+    failedCalls: number;
+  } | undefined;
+
+  for (const entry of entries) {
+    const value = entry.value;
+    if (value.type !== "message") continue;
+    const message = value.message ?? {};
+    const role = message.role;
+    if (role === "user" && textContent(message.content).trim()) {
+      span = {
+        start: entry,
+        startTime: timestampMs(value),
+        toolTurns: 0,
+        toolCalls: 0,
+        failedCalls: 0,
+      };
+      continue;
+    }
+    if (!span) continue;
+    if (role === "assistant") {
+      const calls = Array.isArray(message.content)
+        ? message.content.filter((part: JsonObject) => part?.type === "toolCall")
+        : [];
+      if (calls.length) {
+        span.toolTurns++;
+        span.toolCalls += calls.length;
+      } else if (textContent(message.content).trim()) {
+        const endTime = timestampMs(value);
+        const elapsed = endTime !== undefined && span.startTime !== undefined
+          ? `; ${Math.max(0, endTime - span.startTime)}ms elapsed`
+          : "";
+        metadata.set(span.start.line,
+          `[interaction span: entries ${span.start.line}–${entry.line}; ${span.toolTurns} assistant tool turns; ${span.toolCalls} tool calls; ${span.failedCalls} failed calls${elapsed}]`);
+        span = undefined;
+      }
+    } else if (role === "tool" || role === "toolResult") {
+      if (message.isError) span.failedCalls++;
+    }
+  }
+  return metadata;
+}
+
 function renderEntry(entry: Entry): string {
   const value = entry.value;
   if (value.type === "session") {
@@ -200,9 +258,10 @@ async function readEntries(path: string): Promise<Entry[]> {
 
 function chunks(entries: Entry[], maxChars: number): string[] {
   const result: string[] = [];
+  const interaction = interactionMetadata(entries);
   let current = "";
   for (const entry of entries) {
-    const rendered = renderEntry(entry);
+    const rendered = [interaction.get(entry.line), renderEntry(entry)].filter(Boolean).join("\n");
     if (!rendered) continue;
     if (current && current.length + rendered.length + 2 > maxChars) {
       result.push(current);
@@ -233,19 +292,7 @@ function runPi(prompt: string, systemPrompt: string, model?: string): Promise<st
   });
 }
 
-async function main() {
-  const command = process.argv[2];
-  if (command === "--help" || command === "-h") {
-    console.log(usageText());
-    return;
-  }
-  if (command === "sessions") {
-    const flags = options(process.argv.slice(3), []);
-    printSessions(await discoverSessions(flags.since));
-    return;
-  }
-  if (command !== "review") usage();
-  const flags = options(process.argv.slice(3));
+async function reviewSession(flags: Record<string, string>) {
   const sessionPath = resolve(flags.session);
   const outputPath = resolve(flags.output);
   const maxChars = Number(flags["chunk-chars"] ?? DEFAULT_CHUNK_CHARS);
@@ -303,6 +350,22 @@ async function main() {
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, header + review.trim() + "\n", "utf8");
   console.log(`Wrote ${outputPath}`);
+}
+
+async function main() {
+  const command = process.argv[2];
+  if (command === "--help" || command === "-h") {
+    console.log(usageText());
+    return;
+  }
+  if (command === "sessions") {
+    const flags = options(process.argv.slice(3), []);
+    printSessions(await discoverSessions(flags.since));
+    return;
+  }
+  if (command !== "review") usage();
+  const flags = options(process.argv.slice(3));
+  await reviewSession(flags);
 }
 
 main().catch((error) => {

@@ -30,6 +30,8 @@ Capture explicit user preferences, corrections, constraints, and requests to rem
 
 Identify repeated friction, reusable procedures, costly manual steps, or approaches that may deserve a script, skill, prompt, or project convention. Distinguish a one-off project decision from a potentially general workflow lesson.
 
+Pay attention to workflow friction even when commands do not fail. The evidence may include deterministic interaction-span metadata with elapsed time, assistant tool turns, tool calls, and failed calls. Treat high counts as supporting evidence, not proof of a problem. Inspect the commands and task before deciding whether repeated discovery, retries, exploratory detours, or workarounds indicate that a skill or tool instruction is underspecified. Mention this only when the sequence is clear from the evidence, and describe the concrete documentation or workflow improvement it suggests. Do not treat ordinary one-step command discovery as a problem.
+
 ### Durable knowledge
 
 Capture project conventions, decisions, rejected approaches, or unresolved context that would help a future session. Keep project-specific knowledge separate from personal workflow lessons when possible.
