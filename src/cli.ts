@@ -7,8 +7,6 @@ import { performance } from "node:perf_hooks";
 
 const DEFAULT_CHUNK_CHARS = 24_000;
 const MAX_REVIEW_CHARS = 12_000;
-const CHUNK_REVIEW_INSTRUCTION = `Update the draft review with the new evidence below. Incorporate genuinely new findings, preserve earlier findings that remain supported, remove unsupported claims, and consolidate overlapping points rather than repeating them. Return the complete current Markdown review, not commentary about the update.`;
-
 const DEFAULT_REVIEWER = `You are reviewing a coding-agent session for seshr.
 
 Produce a concise, big-picture Markdown review of the session evidence. This is not an audit or a play-by-play transcript. Do not enumerate every file read, edited, or written, or every routine command. Summarize file and command activity only when it reveals meaningful work, a decision, a failure, a user preference, a reusable workflow, or an unresolved issue. Separate direct observations from suggestions. Every important observation or suggestion must cite the source entry number in the form [entry N]. Do not invent facts, and do not claim that a suggested change was made.
@@ -19,7 +17,9 @@ Use exactly these sections:
 ## Suggested
 ## Open questions
 
-Observed should cover the session's purpose, major work and decisions, user preferences or corrections, meaningful commands/tests and failures, and unresolved work when present. Suggested should only contain durable workflow improvements that are supported by the session. Prefer synthesis and patterns over exhaustive detail. Avoid repeating the same point across sections unless the repetition adds necessary context.`;
+Observed should cover the session's purpose, major work and decisions, user preferences or corrections, meaningful commands/tests and failures, and unresolved work when present. Suggested should only contain durable workflow improvements that are supported by the session. Prefer synthesis and patterns over exhaustive detail. Avoid repeating the same point across sections unless the repetition adds necessary context.
+
+The session may arrive in multiple chunks. For each chunk, update the draft review with genuinely new findings, preserve earlier findings that remain supported, remove unsupported claims, and consolidate overlapping points rather than repeating them. Always return the complete current Markdown review, not commentary about the update.`;
 
 type JsonObject = Record<string, any>;
 type Entry = { line: number; value: JsonObject };
@@ -217,7 +217,7 @@ async function main() {
     const reviewSoFar = review.length > maxReviewChars
       ? review.slice(0, maxReviewChars) + "\n\n[review truncated to stay within the prompt budget]"
       : review;
-    const prompt = `Session: ${session?.id ?? basename(sessionPath)}\nWorking directory: ${session?.cwd ?? "unknown"}\nChunk ${index + 1} of ${renderedChunks.length}\n\n${CHUNK_REVIEW_INSTRUCTION}\n\nREVIEW SO FAR:\n${reviewSoFar}\n\nNEW SESSION EVIDENCE:\n${renderedChunks[index]}`;
+    const prompt = `Session: ${session?.id ?? basename(sessionPath)}\nWorking directory: ${session?.cwd ?? "unknown"}\nChunk ${index + 1} of ${renderedChunks.length}\n\nREVIEW SO FAR:\n${reviewSoFar}\n\nNEW SESSION EVIDENCE:\n${renderedChunks[index]}`;
     if (debugDir) {
       const promptPath = resolve(debugDir, `chunk-${String(index + 1).padStart(3, "0")}.prompt.md`);
       await writeFile(promptPath, prompt + "\n", "utf8");
