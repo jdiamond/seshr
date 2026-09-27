@@ -118,7 +118,7 @@ These categories should remain distinct. Activity and lessons retain source sess
 
 For the MVP, `seshr` reports from session evidence and does not verify or enrich GitHub, ticket-system, or Git history facts. Those integrations can be added later without changing the review format.
 
-The main output is Markdown. The targeted single-session run remains the review path. `seshr sessions` now lists discovered Pi sessions and supports a `--since` filter; batch review and cross-session synthesis remain future work.
+The main output is Markdown. The targeted single-session run remains the review path, with optional event-level time filtering. `seshr sessions` lists discovered Pi sessions and supports a start-time `--since` filter; scripted orchestration can loop over those sessions. Native batch review and cross-session synthesis remain future work.
 
 ### Current MVP
 
@@ -136,23 +136,32 @@ node src/cli.ts review \\
   --model opencode-go/gpt-5.6-luna \\
   --debug-dir /tmp/seshr-debug \\
   --verbose
+
+node src/cli.ts review \\
+  --session ~/.pi/agent/sessions/<project>/<session>.jsonl \\
+  --since yesterday \\
+  --output ./recent-review.md
 ```
 
-`--chunk-chars` and `--review-chars` are runtime tuning knobs: larger values can reduce the number of agent calls and improve cross-session coherence, while increasing prompt size, latency per call, and potentially input-token cost. The defaults are 24,000 and 12,000 characters; the larger values above are useful for models with large context windows. `--verbose` logs the selected model, event and byte counts, per-agent timing, review sizes, and total duration. `--debug-dir` is separate debugging/recovery support: it saves the system prompt plus each prompt/review pair as `chunk-NNN.prompt.md` and `chunk-NNN.review.md`, preserving intermediate results if a run is cancelled.
+`--since` filters a targeted review to events whose timestamps fall between the resolved cutoff and review start time. It accepts rolling durations such as `1d` and local calendar terms `today` and `yesterday` (local midnight). The session file is parsed to inspect event timestamps; missing or invalid timestamps are excluded from filtered reviews and counted in the report. Without `--since`, the full session snapshot is reviewed.
+
+Pi sessions are trees. Reviews reconstruct parent/child relationships, show shared history once, and label alternate branch paths rather than flattening them into file order. The report records its session, source, time range, included and surrounding event counts/time spans, and any tree warnings.
+
+`--chunk-chars` and `--review-chars` are runtime tuning knobs: larger values can reduce the number of agent calls and improve within-session coherence, while increasing prompt size, latency per call, and potentially input-token cost. The defaults are 24,000 and 12,000 characters; the larger values above are useful for models with large context windows. `--verbose` logs the selected model, event and byte counts, per-agent timing, review sizes, and total duration. `--debug-dir` is separate debugging/recovery support: it saves the system prompt plus each prompt/review pair as `chunk-NNN.prompt.md` and `chunk-NNN.review.md`, preserving intermediate results if a run is cancelled.
 
 The default reviewer prompt is the editable `prompts/default-reviewer.md` template. Copy it to personalize the report for a different context, then pass it with `--reviewer <file>`; the custom file replaces the default prompt. The template is organized around report sections so users can adjust emphasis without changing the CLI. The source session and project files are never modified.
 
 ## Current scope
 
-The MVP currently supports one explicitly targeted Pi JSONL session. It deterministically renders user and assistant text, compact tool-call summaries, and important failures; omits routine successful tool output; redacts common credentials; and invokes isolated Pi processes with no session persistence, tools, extensions, skills, or context files.
+The MVP currently supports one explicitly targeted Pi JSONL session, with optional event-level `--since` filtering. It reconstructs branched session trees, renders shared history and alternate paths distinctly, and deterministically renders user and assistant text, compact tool-call summaries, and important failures; omits routine successful tool output; redacts common credentials; and invokes isolated Pi processes with no session persistence, tools, extensions, skills, or context files.
 
 Each chunk updates a complete draft review. The reviewer is instructed to synthesize the big picture rather than produce an audit or file-by-file transcript. The source session and project files remain untouched. The first acceptance test is to run seshr against an existing session, inspect the Markdown, run it again, and verify that only the configured output changes (plus any explicitly requested debug artifacts).
 
 Deferred until the targeted path proves useful:
 
 - resumable output;
-- session discovery and active-session filtering;
-- time-range and all-session selection;
+- active-session filtering and mtime-based candidate optimization;
+- native batch orchestration and bounded historical event-range selection;
 - parallel reviews;
 - cross-session synthesis;
 - scheduling;
