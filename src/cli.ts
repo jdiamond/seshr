@@ -5,6 +5,7 @@ import { basename, dirname, resolve, join } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
+import { buildSessionTree, parseSince, partitionTreeEvidence, selectEventsSince, type SessionEntry } from "./session.ts";
 
 const DEFAULT_CHUNK_CHARS = 24_000;
 const MAX_REVIEW_CHARS = 12_000;
@@ -12,7 +13,8 @@ const DEFAULT_SESSION_DIR = resolve(homedir(), ".pi/agent/sessions");
 const DEFAULT_REVIEWER_PATH = new URL("../prompts/default-reviewer.md", import.meta.url);
 
 type JsonObject = Record<string, any>;
-type Entry = { line: number; value: JsonObject };
+type Entry = SessionEntry;
+type EvidenceGroup = { label: string; entries: Entry[] };
 type SessionInfo = {
   path: string;
   id?: string;
@@ -51,7 +53,7 @@ function options(argv: string[], required: string[] = ["session", "output"]) {
 function usageText() {
   return `Usage:
   seshr sessions [--since <age-or-timestamp>]
-  seshr review --session <path> --output <path> [options]
+  seshr review --session <path> --output <path> [--since <age-or-date>] [options]
 
 Session options:
   --since <value>        Show sessions newer than a duration such as 1d, or a timestamp
@@ -59,6 +61,7 @@ Session options:
 Review options:
   --session <path>       Pi JSONL session file (required)
   --output <path>        Markdown output path (required)
+  --since <value>        Review events since a duration, today/yesterday, or timestamp
   --chunk-chars <n>      Approximate chunk size, default ${DEFAULT_CHUNK_CHARS}
   --review-chars <n>     Maximum carried-forward review size, default ${MAX_REVIEW_CHARS}
   --model <model>        Model passed to pi
@@ -66,17 +69,6 @@ Review options:
   --debug-dir <path>     Save prompts/reviews as chunk-NNN.prompt.md/review.md
   --verbose              Log review progress to stderr
   --help                 Show this help`;
-}
-
-function parseSince(value: string): number {
-  const match = /^(\d+)([smhdw])$/i.exec(value);
-  if (match) {
-    const units: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
-    return Date.now() - Number(match[1]) * units[match[2].toLowerCase()];
-  }
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) throw new Error(`Invalid --since value: ${value}`);
-  return timestamp;
 }
 
 async function readSessionHeader(path: string): Promise<SessionInfo> {
@@ -256,21 +248,23 @@ async function readEntries(path: string): Promise<Entry[]> {
   return entries;
 }
 
-function chunks(entries: Entry[], maxChars: number): string[] {
+function chunks(groups: EvidenceGroup[], maxChars: number): string[] {
   const result: string[] = [];
-  const interaction = interactionMetadata(entries);
-  let current = "";
-  for (const entry of entries) {
-    const rendered = [interaction.get(entry.line), renderEntry(entry)].filter(Boolean).join("\n");
-    if (!rendered) continue;
-    if (current && current.length + rendered.length + 2 > maxChars) {
-      result.push(current);
-      current = "";
+  for (const group of groups) {
+    const interaction = interactionMetadata(group.entries);
+    let current = `## ${group.label}`;
+    for (const entry of group.entries) {
+      const rendered = [interaction.get(entry.line), renderEntry(entry)].filter(Boolean).join("\n");
+      if (!rendered) continue;
+      if (current.length > group.label.length + 3 && current.length + rendered.length + 2 > maxChars) {
+        result.push(current);
+        current = `## ${group.label} (continued)`;
+      }
+      // Keep a single oversized entry intact rather than silently dropping evidence.
+      current += `\n\n${rendered}`;
     }
-    // Keep a single oversized entry intact rather than silently dropping evidence.
-    current += (current ? "\n\n" : "") + rendered;
+    if (current !== `## ${group.label}`) result.push(current);
   }
-  if (current) result.push(current);
   return result;
 }
 
@@ -300,10 +294,27 @@ async function reviewSession(flags: Record<string, string>) {
   if (!Number.isInteger(maxChars) || maxChars < 1) throw new Error("--chunk-chars must be a positive integer");
   if (!Number.isInteger(maxReviewChars) || maxReviewChars < 1) throw new Error("--review-chars must be a positive integer");
 
+  const reviewedAt = new Date();
   const entries = await readEntries(sessionPath);
   const session = entries.find((entry) => entry.value.type === "session")?.value;
-  const renderedChunks = chunks(entries, maxChars);
-  if (!renderedChunks.length) throw new Error("Session contains no reviewable messages");
+  const cutoff = flags.since ? parseSince(flags.since, reviewedAt) : undefined;
+  const selection = selectEventsSince(entries, cutoff, reviewedAt.getTime());
+  const includedIds = new Set(selection.selected.map((entry) => entry.value.id));
+  const tree = buildSessionTree(entries);
+  const partition = partitionTreeEvidence(tree, (entry) => includedIds.has(entry.value.id));
+  const groups: EvidenceGroup[] = [];
+  if (partition.shared.length) groups.push({ label: "Shared history (applies to all branches)", entries: partition.shared });
+  partition.branches.forEach((branch, index) => {
+    const label = partition.branches.length === 1
+      ? `Session path to leaf ${branch.leaf.value.id}`
+      : `Branch ${index + 1} (diverges after ${branch.from?.value.id ?? "session root"}; leaf ${branch.leaf.value.id})`;
+    groups.push({ label, entries: branch.entries });
+  });
+  const renderedChunks = chunks(groups, maxChars);
+  if (!renderedChunks.length) throw new Error("Session contains no reviewable messages in the selected time range");
+  const treeWarning = tree.errors.length
+    ? `SESSION TREE WARNINGS (some entries may not be represented in branch paths):\n${tree.errors.map((error) => `- ${error}`).join("\n")}`
+    : "";
   const systemPrompt = flags.reviewer
     ? await readFile(resolve(flags.reviewer), "utf8")
     : await readFile(DEFAULT_REVIEWER_PATH, "utf8");
@@ -317,7 +328,7 @@ async function reviewSession(flags: Record<string, string>) {
     if (verbose) console.error(`[seshr] ${message}`);
   };
   let review = "(No review has been written yet.)";
-  log(`session ${session?.id ?? basename(sessionPath)}: ${entries.length} JSONL entries, ${renderedChunks.length} chunk(s)`);
+  log(`session ${session?.id ?? basename(sessionPath)}: ${entries.length} JSONL entries, ${selection.selected.length} selected entries, ${renderedChunks.length} chunk(s)`);
   log(`reviewer model: ${flags.model ?? "Pi default model"}`);
 
   const totalStart = performance.now();
@@ -327,7 +338,7 @@ async function reviewSession(flags: Record<string, string>) {
     const reviewSoFar = review.length > maxReviewChars
       ? review.slice(0, maxReviewChars) + "\n\n[review truncated to stay within the prompt budget]"
       : review;
-    const prompt = `Session: ${session?.id ?? basename(sessionPath)}\nWorking directory: ${session?.cwd ?? "unknown"}\nChunk ${index + 1} of ${renderedChunks.length}\n\nREVIEW SO FAR:\n${reviewSoFar}\n\nNEW SESSION EVIDENCE:\n${renderedChunks[index]}`;
+    const prompt = `Session: ${session?.id ?? basename(sessionPath)}\nWorking directory: ${session?.cwd ?? "unknown"}\n${cutoff === undefined ? "Review scope: complete session snapshot" : `Review scope: events in [${new Date(cutoff).toISOString()}, ${reviewedAt.toISOString()}]`}\n${treeWarning}\nChunk ${index + 1} of ${renderedChunks.length}\n\nREVIEW SO FAR:\n${reviewSoFar}\n\nNEW SESSION EVIDENCE:\n${renderedChunks[index]}`;
     if (debugDir) {
       const promptPath = resolve(debugDir, `chunk-${String(index + 1).padStart(3, "0")}.prompt.md`);
       await writeFile(promptPath, prompt + "\n", "utf8");
@@ -346,7 +357,11 @@ async function reviewSession(flags: Record<string, string>) {
   }
   log(`review complete in ${Math.round(performance.now() - totalStart)} ms`);
 
-  const header = `# Session review\n\n- **Session:** \`${session?.id ?? basename(sessionPath)}\`\n- **Source:** \`${sessionPath}\`\n- **Working directory:** \`${session?.cwd ?? "unknown"}\`\n\n`;
+  const timestampRange = (selected: Entry[]) => {
+    const times = selected.map((entry) => timestampMs(entry.value)).filter((time): time is number => time !== undefined).sort((a, b) => a - b);
+    return times.length ? ` (${new Date(times[0]).toISOString()} to ${new Date(times[times.length - 1]).toISOString()})` : "";
+  };
+  const header = `# Session review\n\n- **Session:** \`${session?.id ?? basename(sessionPath)}\`\n- **Source:** \`${sessionPath}\`\n- **Working directory:** \`${session?.cwd ?? "unknown"}\`\n- **Reviewed at:** ${reviewedAt.toISOString()}\n- **Requested range:** ${cutoff === undefined ? "complete session snapshot" : `[${new Date(cutoff).toISOString()}, ${reviewedAt.toISOString()}]`}\n- **Included events:** ${selection.selected.length}${timestampRange(selection.selected)}\n- **Earlier events:** ${selection.before.length}${timestampRange(selection.before)}\n- **Later events:** ${selection.after.length}${timestampRange(selection.after)}\n- **Events with missing/invalid timestamps:** ${selection.missingTimestamp.length}${cutoff === undefined ? " (included in full-session review)" : " (excluded from time-filtered review)"}\n- **Session tree warnings:** ${tree.errors.length}\n\n${tree.errors.length ? `## Session tree warnings\\n\\n${tree.errors.map((error) => `- ${error}`).join("\\n")}\\n\\n` : ""}`;
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, header + review.trim() + "\n", "utf8");
   console.log(`Wrote ${outputPath}`);

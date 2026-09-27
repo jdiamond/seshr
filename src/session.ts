@@ -15,6 +15,7 @@ export type SessionTree = {
 export type EventSelection = {
   selected: SessionEntry[];
   before: SessionEntry[];
+  after: SessionEntry[];
   missingTimestamp: SessionEntry[];
 };
 
@@ -61,9 +62,10 @@ export function partitionTreeEvidence(
   return { shared, branches };
 }
 
-export function selectEventsSince(entries: SessionEntry[], cutoff: number): EventSelection {
+export function selectEventsSince(entries: SessionEntry[], cutoff?: number, until?: number): EventSelection {
   const selected: SessionEntry[] = [];
   const before: SessionEntry[] = [];
+  const after: SessionEntry[] = [];
   const missingTimestamp: SessionEntry[] = [];
   for (const entry of entries) {
     if (entry.value.type === "session") continue;
@@ -71,11 +73,14 @@ export function selectEventsSince(entries: SessionEntry[], cutoff: number): Even
     const timestamp = typeof rawTimestamp === "number"
       ? rawTimestamp
       : typeof rawTimestamp === "string" ? Date.parse(rawTimestamp) : Number.NaN;
-    if (!Number.isFinite(timestamp)) missingTimestamp.push(entry);
-    else if (timestamp >= cutoff) selected.push(entry);
-    else before.push(entry);
+    if (!Number.isFinite(timestamp)) {
+      missingTimestamp.push(entry);
+      if (cutoff === undefined) selected.push(entry);
+    } else if (cutoff !== undefined && timestamp < cutoff) before.push(entry);
+    else if (until !== undefined && timestamp > until) after.push(entry);
+    else selected.push(entry);
   }
-  return { selected, before, missingTimestamp };
+  return { selected, before, after, missingTimestamp };
 }
 
 export function buildSessionTree(entries: SessionEntry[]): SessionTree {
