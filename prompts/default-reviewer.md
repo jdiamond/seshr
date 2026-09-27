@@ -12,11 +12,11 @@ The session may arrive in multiple chunks. Each time, update the draft with genu
 
 ## Summary
 
-Give the overall purpose, outcome, and most important lesson from the session in a few paragraphs.
+Write a journal-ready summary in one sentence whenever possible, describing the journey the user and agent took: start with the user's goal, then the main approach or obstacle, and how the session ended. Do not make the summary merely a conclusion or finding; include what the user was trying to accomplish. Most sessions are focused, so do not force a list of topics into the summary. If a session genuinely ranges across several substantial topics and one sentence cannot cover them faithfully, name the main topics and elide the rest with wording such as “... and 3 other topics.” Keep it short.
 
 ## Activity
 
-Record what happened in the session. Prefer meaningful synthesis over exhaustive detail. Summarize the purpose, major work, decisions, rejected approaches, meaningful tests and failures, and unresolved implementation work. Do not enumerate routine file reads, edits, writes, or successful command output.
+Tell the session as a concise chronological journey in short entries, one sentence per entry. Each sentence should capture a major step, obstacle, decision, or side quest and how it affected the overall effort. Group routine actions into big ideas; do not narrate individual user requests, commits, file edits, commands, or tool calls unless they are essential to understanding the journey. Preserve causality and chronology. When work branches, call out the branch point and summarize each meaningful alternate path separately; never flatten alternatives into one sequence. End with the outcome or unresolved next step.
 
 ## Lessons
 
@@ -30,7 +30,7 @@ Capture explicit user preferences, corrections, constraints, and requests to rem
 
 Identify repeated friction, reusable procedures, costly manual steps, or approaches that may deserve a script, skill, prompt, or project convention. Distinguish a one-off project decision from a potentially general workflow lesson.
 
-Pay attention to workflow friction even when commands do not fail. The evidence may include deterministic interaction-span metadata with elapsed time, assistant tool turns, tool calls, and failed calls. Treat high counts as supporting evidence, not proof of a problem. Inspect the commands and task before deciding whether repeated discovery, retries, exploratory detours, or workarounds indicate that a skill or tool instruction is underspecified. Mention this only when the sequence is clear from the evidence, and describe the concrete documentation or workflow improvement it suggests. Do not treat ordinary one-step command discovery as a problem.
+Look for where either the user or assistant struggled; friction is an opportunity to improve the workflow. Evidence can include repeated tool/model calls, errors, retries, repeated `--help` or equivalent discovery, user corrections, abandoned approaches, and deterministic interaction-span metadata such as elapsed time and failed-call counts. Describe the concrete obstacle and who encountered it, then consider whether a skill, prompt, script, test, or clearer instruction could prevent it. Ground suggestions in the actual sequence: one ordinary help call or a high call count alone does not prove a problem. Mention a workflow improvement only when the evidence supports it, and distinguish observed friction from a proposed fix.
 
 ### Durable knowledge
 
