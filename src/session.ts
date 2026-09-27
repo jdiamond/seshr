@@ -12,6 +12,46 @@ export type SessionTree = {
   errors: string[];
 };
 
+export type EventSelection = {
+  selected: SessionEntry[];
+  before: SessionEntry[];
+  missingTimestamp: SessionEntry[];
+};
+
+export function parseSince(value: string, now = new Date()): number {
+  const normalized = value.toLowerCase();
+  if (normalized === "today" || normalized === "yesterday") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (normalized === "yesterday") start.setDate(start.getDate() - 1);
+    return start.getTime();
+  }
+  const match = /^(\d+)([smhdw])$/i.exec(value);
+  if (match) {
+    const units: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+    return now.getTime() - Number(match[1]) * units[match[2].toLowerCase()];
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) throw new Error(`Invalid --since value: ${value}`);
+  return timestamp;
+}
+
+export function selectEventsSince(entries: SessionEntry[], cutoff: number): EventSelection {
+  const selected: SessionEntry[] = [];
+  const before: SessionEntry[] = [];
+  const missingTimestamp: SessionEntry[] = [];
+  for (const entry of entries) {
+    if (entry.value.type === "session") continue;
+    const rawTimestamp = entry.value.timestamp;
+    const timestamp = typeof rawTimestamp === "number"
+      ? rawTimestamp
+      : typeof rawTimestamp === "string" ? Date.parse(rawTimestamp) : Number.NaN;
+    if (!Number.isFinite(timestamp)) missingTimestamp.push(entry);
+    else if (timestamp >= cutoff) selected.push(entry);
+    else before.push(entry);
+  }
+  return { selected, before, missingTimestamp };
+}
+
 export function buildSessionTree(entries: SessionEntry[]): SessionTree {
   const errors: string[] = [];
   const nodes = new Map<string, SessionTreeNode>();
