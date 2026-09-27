@@ -18,6 +18,11 @@ export type EventSelection = {
   missingTimestamp: SessionEntry[];
 };
 
+export type BranchEvidence = {
+  shared: SessionEntry[];
+  branches: { from?: SessionEntry; leaf: SessionEntry; entries: SessionEntry[] }[];
+};
+
 export function parseSince(value: string, now = new Date()): number {
   const normalized = value.toLowerCase();
   if (normalized === "today" || normalized === "yesterday") {
@@ -33,6 +38,27 @@ export function parseSince(value: string, now = new Date()): number {
   const timestamp = Date.parse(value);
   if (Number.isNaN(timestamp)) throw new Error(`Invalid --since value: ${value}`);
   return timestamp;
+}
+
+export function partitionTreeEvidence(
+  tree: SessionTree,
+  include: (entry: SessionEntry) => boolean = () => true,
+): BranchEvidence {
+  if (!tree.paths.length) return { shared: [], branches: [] };
+  let sharedLength = 0;
+  if (tree.paths.length > 1) {
+    while (tree.paths[0][sharedLength] && tree.paths.every((path) =>
+      path[sharedLength]?.value.id === tree.paths[0][sharedLength].value.id)) {
+      sharedLength++;
+    }
+  }
+  const shared = tree.paths[0].slice(0, sharedLength).filter(include);
+  const branches = tree.paths.map((path) => ({
+    from: sharedLength ? path[sharedLength - 1] : undefined,
+    leaf: path[path.length - 1],
+    entries: path.slice(sharedLength).filter(include),
+  }));
+  return { shared, branches };
 }
 
 export function selectEventsSince(entries: SessionEntry[], cutoff: number): EventSelection {
