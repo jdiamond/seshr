@@ -1,0 +1,7 @@
+{"type":"session","version":3,"id":"fixture-session","timestamp":"2026-09-25T12:00:00.000Z","cwd":"/tmp/project"}
+{"type":"message","id":"u-root","parentId":null,"timestamp":"2026-09-25T12:00:01.000Z","message":{"role":"user","content":"Start task"}}
+{"type":"message","id":"a-root","parentId":"u-root","timestamp":"2026-09-25T12:00:02.000Z","message":{"role":"assistant","content":"Shared setup"}}
+{"type":"message","id":"u-left","parentId":"a-root","timestamp":"2026-09-25T12:00:05.000Z","message":{"role":"user","content":"Try approach left"}}
+{"type":"message","id":"a-left","parentId":"u-left","timestamp":"2026-09-25T12:00:04.000Z","message":{"role":"assistant","content":"Left branch result"}}
+{"type":"message","id":"u-right","parentId":"a-root","timestamp":"2026-09-25T12:00:03.000Z","message":{"role":"user","content":"Try approach right"}}
+{"type":"message","id":"a-right","parentId":"u-right","timestamp":"2026-09-25T12:00:06.000Z","message":{"role":"assistant","content":"Right branch result"}}
